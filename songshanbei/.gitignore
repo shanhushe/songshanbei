@@ -1,0 +1,9 @@
+env.local.sh
+outputs/
+__pycache__/
+*.pyc
+*.whl
+*.so
+*.pt
+*.safetensors
+*.tar.gz
