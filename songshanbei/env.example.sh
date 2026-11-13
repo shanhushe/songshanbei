@@ -1,15 +1,9 @@
 #!/usr/bin/env bash
-
-export H3_INFINICORE_SRC=/path/to/InfiniCore
-export H3_INFINILM_SRC=/path/to/InfiniLM
-export H3_INFINI_ROOT=/path/to/infinicore/install
-# This directory contains ninetoothed/aot.py.
-export H3_NINETOOTHED_PARENT=/path/to/ninetoothed/parent
-export H3_VENDOR_WHEEL=/path/to/triton-3.5.1+das.opt1.dtk2604.torch290-cp311-cp311-manylinux_2_28_x86_64.whl
-# This directory contains diffusers/ and the FL2VA checkpoint.
+# Copy to env.local.sh and set the organizer-provided inputs.
 export H3_MODEL_PATH=/path/to/MiniMax-H3
 export H3_FIRST_FRAME=/path/to/first_frame.jpg
-export H3_OUTPUT_ROOT="$PWD/outputs"
-# Optional. Use the environment's compatible Python dependencies, if required.
-# export H3_RUNTIME_PYTHONPATH=/path/to/pylibs
-# export H3_NT_BIN=/path/to/additional/ninetoothed/tools
+# Optional overrides. Default DTK path is /opt/dtk.
+# export DTK_ROOT=/opt/dtk
+# export H3_BUILD_ROOT=/path/to/writable/build-directory
+# export H3_OUTPUT_ROOT=/path/to/writable/results
+# export H3_VENDOR_WHEEL=/path/to/compatible/triton.whl

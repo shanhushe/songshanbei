@@ -1,0 +1,15 @@
+# Use the PyTorch 2.9 Hygon build already provided by the DTK environment.
+diffusers==0.42.1
+transformers==5.22.1
+accelerate==1.15.0
+safetensors==0.8.0
+tokenizers==0.23.3
+av==14.2.0
+imageio==2.38.1
+ftfy==6.3.1
+janus==2.0.0
+xxhash==4.0.2
+numpy==2.2.6
+sympy==1.14.0
+Pillow
+scikit-image

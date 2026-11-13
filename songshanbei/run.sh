@@ -1,9 +1,46 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-project="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/src" && pwd)"
-if [[ -n "${H3_ENV_FILE:-}" ]]; then
-    source "$H3_ENV_FILE"
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+project="$root/src"
+if [[ -n "${H3_ENV_FILE:-}" ]]; then source "$H3_ENV_FILE"; fi
+state=${H3_BUILD_ROOT:-$root/.h3-build}
+export H3_INFINICORE_SRC=${H3_INFINICORE_SRC:-$state/InfiniCore}
+export H3_INFINILM_SRC=${H3_INFINILM_SRC:-$state/InfiniLM}
+export H3_INFINI_ROOT=${H3_INFINI_ROOT:-$state/install}
+export H3_NINETOOTHED_PARENT=${H3_NINETOOTHED_PARENT:-$root/vendor}
+export H3_RUNTIME_PYTHONPATH=${H3_RUNTIME_PYTHONPATH:-$state/pylibs}
+export PYTHONPATH="$H3_RUNTIME_PYTHONPATH${PYTHONPATH:+:$PYTHONPATH}"
+export DTK_ROOT=${DTK_ROOT:-/opt/dtk}
+wheel_name='triton-3.5.1+das.opt1.dtk2604.torch290-cp311-cp311-manylinux_2_28_x86_64.whl'
+export H3_VENDOR_WHEEL=${H3_VENDOR_WHEEL:-$state/$wheel_name}
+if [[ ! -s "$H3_VENDOR_WHEEL" && $# == 0 ]]; then
+    mkdir -p "$(dirname -- "$H3_VENDOR_WHEEL")"
+    wheel_index='https://pypi.sourcefind.cn/das_release/dtk2604-rc1/+simple/triton/'
+    wheel_url=$(python3 -S - "$wheel_index" "$wheel_name" <<'PY'
+from html.parser import HTMLParser
+from urllib.parse import unquote, urljoin, urlsplit
+from urllib.request import urlopen
+import sys
+
+index, target = sys.argv[1:]
+urls = []
+class Links(HTMLParser):
+    def handle_starttag(self, tag, attrs):
+        href = dict(attrs).get('href') if tag == 'a' else None
+        if href and unquote(urlsplit(href).path).rsplit('/', 1)[-1] == target:
+            urls.append(urljoin(index, href))
+with urlopen(index, timeout=30) as response:
+    Links().feed(response.read().decode())
+if len(set(urls)) != 1:
+    raise SystemExit('Set H3_VENDOR_WHEEL to the verified Hygon Triton wheel')
+print(urls[0].split('#', 1)[0])
+PY
+)
+    curl --fail --location --retry 2 "$wheel_url" -o "$H3_VENDOR_WHEEL.part"
+    printf '%s  %s\n' e397b16365da22508353ce44a45f5be82f8ee58e49853a3df06aa8f6f83d5581 \
+        "$H3_VENDOR_WHEEL.part" | sha256sum -c -
+    mv "$H3_VENDOR_WHEEL.part" "$H3_VENDOR_WHEEL"
 fi
 : "${H3_INFINICORE_SRC:?Set H3_INFINICORE_SRC in env.local.sh}"
 : "${H3_INFINILM_SRC:?Set H3_INFINILM_SRC in env.local.sh}"
@@ -86,9 +123,9 @@ aot.write_text(source)
 print("H3_VENDOR_WHEEL_VERIFIED", digest, flush=True)
 PY
 ln -s "$(command -v python3)" "$scratch/vendor-bin/python"
-NINETOOTHED_ARCH=gfx936 ROCM_PATH=/opt/dtk-26.04 \
-    TRITON_HIP_CLANG_PATH=/opt/dtk/llvm/bin/clang PATH="$scratch/vendor-bin${H3_NT_BIN:+:$H3_NT_BIN}:$PATH" \
-    PYTHONPATH="$scratch/vendor-ninetoothed:$core/src" TRITON_CACHE_DIR="$scratch/triton-cache" \
+NINETOOTHED_ARCH=gfx936 ROCM_PATH="${H3_ROCM_PATH:-/opt/dtk-26.04}" \
+    TRITON_HIP_CLANG_PATH="$DTK_ROOT/llvm/bin/clang" PATH="$scratch/vendor-bin${H3_NT_BIN:+:$H3_NT_BIN}:$PATH" \
+    PYTHONPATH="$scratch/vendor-ninetoothed:$core/src:$H3_RUNTIME_PYTHONPATH" TRITON_CACHE_DIR="$scratch/triton-cache" \
     TRITON_CACHE_MANAGER=vendor_private_cache:PrivateCache \
     python3 -u -c 'import runpy, sys, triton; print("H3_VENDOR_TRITON", triton.__version__, triton.__file__, flush=True); runpy.run_path(sys.argv[1], run_name="__main__")' "$scratch/gen_model.py"
 printf 'H3_MODEL_AOT_DONE\n'
@@ -100,11 +137,11 @@ cd "$generated"
 shopt -s nullglob
 sources=(flash_attention_*.cpp)
 [[ "${#sources[@]}" -gt 0 ]]
-compiler=/opt/dtk/llvm/bin/clang++
+compiler=$DTK_ROOT/llvm/bin/clang++
 "$compiler" -shared -fPIC -O2 -std=c++17 -D__HIP_PLATFORM_AMD__ \
-    -I"$original/include" -I/opt/dtk/include -Wno-return-type -Wno-unused-result \
+    -I"$original/include" -I"$DTK_ROOT/include" -Wno-return-type -Wno-unused-result \
     -Wl,-z,defs -x c++ flash_attention.c "${sources[@]}" \
-    -o "$generated/libh3_nine_model.so" -L/opt/dtk/lib -lamdhip64
+    -o "$generated/libh3_nine_model.so" -L"$DTK_ROOT/lib" -lamdhip64
 "$compiler" -shared -fPIC -O2 -std=c++20 -DH3_DIRECT_AOT \
     -I"$original/include" -I"$generated" -I"$project" \
     "$project/mha_nine_bridge.cpp" -L"$prefix/lib" -linfinicore_cpp_api \
@@ -117,7 +154,7 @@ for library in libh3_nine_model.so libh3_nine_bridge.so; do
 done
 
 export INFINI_ROOT="$prefix"
-export LD_LIBRARY_PATH="$generated:$prefix/lib:/opt/dtk/lib:/opt/dtk/cuda/cuda/lib64:/usr/local/lib/python3.11/site-packages/torch/lib:/opt/hyhal/lib:${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="$generated:$prefix/lib:$DTK_ROOT/lib:$DTK_ROOT/cuda/cuda/lib64:/usr/local/lib/python3.11/site-packages/torch/lib:/opt/hyhal/lib:${LD_LIBRARY_PATH:-}"
 export PYTHONPATH="$project${H3_RUNTIME_PYTHONPATH:+:$H3_RUNTIME_PYTHONPATH}:$original/python:$lm/python${PYTHONPATH:+:$PYTHONPATH}"
 export H3_NINE_MHA_BRIDGE="$generated/libh3_nine_bridge.so"
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
